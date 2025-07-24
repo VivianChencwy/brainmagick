@@ -3,6 +3,8 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import torchaudio
+import soundfile as sf
 
 """
 TODO
@@ -136,17 +138,51 @@ def _read_meta(fname):
     events["start"] = events["_start_sample"] / SFREQ
 
     # add audio events
-    wav_file = (
+    wav_file_template = str(
         paths.download / "audio" / "DownTheRabbitHoleFinal_SoundFile%i.wav"
     )
+    # sounds = []
+    # for segment, d in events.groupby("Segment"):
+    #     # Some wav files start BEFORE the onset of eeg recording...
+    #     start = d.iloc[0].start - d.iloc[0].onset
+    #     sound = dict(
+    #         kind="sound", start=start, filepath=str(wav_file) % segment
+    #     )
+    #     sounds.append(sound)
     sounds = []
     for segment, d in events.groupby("Segment"):
         # Some wav files start BEFORE the onset of eeg recording...
         start = d.iloc[0].start - d.iloc[0].onset
+        audio_file = Path(wav_file_template % segment)
+        
+        # 使用更可靠的音频信息获取方法
+        try:
+            # 优先尝试 torchaudio
+            info = torchaudio.info(audio_file)
+            sample_rate = info.sample_rate
+            num_frames = info.num_frames
+        except RuntimeError:
+            # 如果失败，使用 soundfile 作为后备
+            try:
+                info = sf.info(audio_file)
+                sample_rate = info.samplerate
+                num_frames = info.frames
+            except Exception as e:
+                print(f"无法获取音频信息 {audio_file}: {str(e)}")
+                # 设置默认值
+                sample_rate = 44100
+                num_frames = 0
+        
         sound = dict(
-            kind="sound", start=start, filepath=str(wav_file) % segment
+            kind="sound",
+            start=start,
+            filepath=str(audio_file),
+            sample_rate=sample_rate,  # 添加采样率
+            num_frames=num_frames,    # 添加帧数
         )
         sounds.append(sound)
+
+
     events = pd.concat([events, pd.DataFrame(sounds)], ignore_index=True)
     events = events.sort_values("start").reset_index()
 
